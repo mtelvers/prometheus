@@ -10,9 +10,24 @@ It can also be used to send alerts if a service is down or behaving poorly.
 
 This repository contains code to report metrics to a [Prometheus][] monitoring server.
 
+### Packages
+
+The library is split so that defining and recording metrics never pulls in a
+concurrency library; an application picks a backend only when it comes to
+serving them. `prometheus-lwt` provides the Lwt backend today; further
+backends (e.g. Eio, Miou) can be added without changing the core.
+
+| Package | Adds | Use it for |
+|---|---|---|
+| `prometheus` | — (`re`) | Defining and recording metrics. Libraries depend only on this. |
+| `prometheus-app` | `fmt` | Rendering a snapshot to the text format, plus standard GC collectors. No HTTP, no concurrency library. |
+| `prometheus-cohttp` | `cohttp` | A `/metrics` handler functor for any cohttp backend. |
+| `prometheus-lwt` (+ `.unix`) | `lwt`, `cohttp-lwt(-unix)`, `cmdliner`, `logs` | Serving metrics from an Lwt application. |
+
 ### Use by libraries
 
-Library authors should define a set of metrics that may be useful. For example, the DataKitCI
+Library authors should define a set of metrics that may be useful, depending
+only on the backend-agnostic `prometheus` package. For example, the DataKitCI
 cache module defines several metrics like this:
 
 ```ocaml
@@ -47,14 +62,15 @@ When (for example) a build succeeds, the CI does:
 Prometheus.Counter.inc_one (Metrics.builds_succeeded_total build_type)
 ```
 
-### Use by applications
+Recording is synchronous and backend-agnostic, so this code is identical
+regardless of which scheduler the eventual application uses.
 
-Applications can enable metric reporting using the `prometheus-app` opam package.
-This depends on cohttp and can serve the metrics collected above over HTTP.
+### Use by applications (Lwt)
 
-The `prometheus-app.unix` ocamlfind library provides the `Prometheus_unix` module,
-which includes a cmdliner option and pre-configured web-server.
-See the `examples/example.ml` program for an example, which can be run as:
+An Lwt application enables reporting with the `prometheus-lwt` package. The
+`prometheus-lwt.unix` library provides the `Prometheus_lwt_unix` module, which
+adds a cmdliner option and a pre-configured web-server. See `examples/example.ml`,
+which can be run as:
 
 ```shell
 $ dune exec -- examples/example.exe --listen-prometheus=9090
@@ -65,7 +81,15 @@ Tick!
 ...
 ```
 
-Unikernels can use `Prometheus_app` instead of `Prometheus_unix` to avoid the `Unix` dependency.
+`prometheus-lwt` also provides collectors that may suspend (`register_lwt`), an
+Lwt-returning `CollectorRegistry.collect`, and Lwt timing helpers
+(`Prometheus_lwt.Gauge.time`, `track_inprogress`, `Prometheus_lwt.Summary.time`).
+
+### Exporting without an HTTP server
+
+Unikernels and applications that push metrics elsewhere can use `prometheus-app`
+directly: `Prometheus_app.TextFormat_0_0_4.output` renders a snapshot, with no
+dependency on cohttp, Unix, or a concurrency library.
 
 ### API docs
 
